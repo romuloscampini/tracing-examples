@@ -1,0 +1,138 @@
+version: "3.4"
+services:
+
+  elasticsearch:
+    container_name: elasticsearch
+    image: docker.elastic.co/elasticsearch/elasticsearch-oss:7.10.0
+    networks:
+      - opentracing
+    environment:
+      - discovery.type=single-node
+    ports:
+      - "9200:9200/tcp"
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana-oss:7.10.0
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=["http://elasticsearch:9200"]
+    ports:
+      - "15601:5601"
+    networks:
+      - opentracing
+    depends_on:
+      - elasticsearch
+
+  jaeger-query:
+    image: jaegertracing/jaeger-query:1.35.1
+    container_name: query
+    ports:
+      - "16686:16686"
+      - "16687"
+    environment:
+      - SPAN_STORAGE_TYPE=elasticsearch
+      - LOG_LEVEL=debug
+      - ES_SERVER_URLS=http://elasticsearch:9200
+      - ES_NUM_SHARDS=1
+      - ES_NUM_REPLICAS=0
+    restart: on-failure
+    networks:
+      - opentracing
+    depends_on:
+      - elasticsearch
+
+  collector-elastic:
+    image: jaegertracing/jaeger-collector:1.35.1
+    container_name: collector-elastic
+    ports:
+      - "14269:14269"
+      - "14268:14268"
+      - "14250:14250"
+      - "9411:9411" #Zipkin Http
+      - "4317:4317" #OTLP gRPC
+      - "4318:4318" #OTLP http
+    environment:
+      - SPAN_STORAGE_TYPE=elasticsearch
+      - LOG_LEVEL=debug
+      - ES_SERVER_URLS=http://elasticsearch:9200
+      - ES_NUM_SHARDS=1
+      - ES_NUM_REPLICAS=0
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+      - COLLECTOR_OTLP_ENABLED=true
+    restart: on-failure
+    networks:
+      - opentracing
+    depends_on:
+      - elasticsearch
+
+  animal-name-service:
+    image: animal-name-service:0.1.0
+    container_name: animal
+    build: ./animal-name-service
+    ports:
+      - "9000:9000"
+    environment:
+      - LOG_LEVEL=debug
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_APPLICATION_NAME=animal
+      - OPENTRACING_JAEGER_HOST=jaeger-agent
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector-elastic:4317
+      - OTEL_SERVICE_NAME=animal
+    volumes:
+      - ./opentelemetry-javaagent.jar:/opt/app/opentelemetry-javaagent.jar
+    restart: on-failure
+    networks:
+      - opentracing
+    depends_on:
+      - collector-elastic
+
+  scientist-name-service:
+    image: scientist-name-service:0.1.0
+    container_name: scientist
+    build: ./scientist-name-service
+    ports:
+      - "8090:8090"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_APPLICATION_NAME=scientist
+      - LOG_LEVEL=debug
+      - OPENTRACING_JAEGER_HOST=jaeger-agent
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector-elastic:4317
+      - OTEL_SERVICE_NAME=scientist
+    volumes:
+      - ./opentelemetry-javaagent.jar:/opt/app/opentelemetry-javaagent.jar
+    restart: on-failure
+    networks:
+      - opentracing
+    depends_on:
+      - collector-elastic
+
+  name-generator-service:
+    image: name-generator-service:0.1.0
+    container_name: generator
+    build: ./name-generator-service
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_APPLICATION_NAME=name-generator
+      - LOG_LEVEL=debug
+      - OPENTRACING_JAEGER_HOST=jaeger-agent
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector-elastic:4317
+      - OTEL_SERVICE_NAME=name-generator
+      - JAVA_EXTRA_OPTS=-Danimal.service.prefix.url=http://animal-name-service:9000 -Dscientist.service.prefix.url=http://scientist-name-service:8090
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./opentelemetry-javaagent.jar:/opt/app/opentelemetry-javaagent.jar
+    restart: on-failure
+    networks:
+      - opentracing
+    depends_on:
+      - collector-elastic
+      - animal-name-service
+      - scientist-name-service
+
+networks:
+  opentracing: { }
