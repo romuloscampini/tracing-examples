@@ -1,5 +1,16 @@
+FROM maven:3.8-amazoncorretto-11 as dependencies
+WORKDIR /opt/app
+COPY . .
+RUN mvn dependency:resolve
+
+
+FROM dependencies as build
+RUN mvn clean package
+
+
 FROM amazoncorretto:11-alpine-jdk
-EXPOSE 8090
-ENV JAVA_OPTS="-javaagent:/opt/app/opentelemetry-javaagent.jar"
-COPY target/scientist-name-service-*.jar scientist-name-service.jar
+ENV JAVA_OPTS=""
+ENV JAVA_EXTRA_OPTS=""
+EXPOSE 9191
+COPY --from=build /opt/app/target/scientist-name-service-*.jar scientist-name-service.jar
 CMD java $JAVA_OPTS $JAVA_EXTRA_OPTS -jar /scientist-name-service.jar
