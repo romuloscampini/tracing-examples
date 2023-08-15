@@ -1,0 +1,114 @@
+version: "3.4"
+services:
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.12
+    container_name: elasticsearch
+    networks:
+      - opentracing
+    environment:
+      - discovery.type=single-node
+    ports:
+      - "9200:9200/tcp"
+
+  apm:
+    image: docker.elastic.co/apm/apm-server-oss:7.17.12
+    container_name: apm
+    environment:
+      - ELASTICSEARCH_HOSTS=["http://elasticsearch:9200"]
+    networks:
+      - opentracing
+    ports:
+      - "8200:8200/tcp"
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.12
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=["http://elasticsearch:9200"]
+    ports:
+      - "15601:5601"
+    networks:
+      - opentracing
+    depends_on:
+      - elasticsearch
+
+  animal-name-service:
+    image: animal-name-service:0.1.0
+    container_name: animal
+    build: ./animal-name-service
+    ports:
+      - "9090:9090"
+    environment:
+      - JAVA_OPTS=-javaagent:/opt/app/opentelemetry-javaagent.jar
+      - LOG_LEVEL=debug
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://apm:8200
+      - OTEL_SERVICE_NAME=animal
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_APPLICATION_NAME=animal
+    volumes:
+      - ./opentelemetry-javaagent.jar:/opt/app/opentelemetry-javaagent.jar
+    restart: on-failure
+    networks:
+      - opentracing
+    depends_on:
+      - apm
+
+  scientist-name-service:
+    image: scientist-name-service:0.1.0
+    container_name: scientist
+    build: ./scientist-name-service
+    ports:
+      - "9191:9191"
+    environment:
+      - JAVA_OPTS=-javaagent:/opt/app/opentelemetry-javaagent.jar
+      - LOG_LEVEL=debug
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://apm:8200
+      - OTEL_SERVICE_NAME=scientist
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_APPLICATION_NAME=scientist
+    volumes:
+      - ./opentelemetry-javaagent.jar:/opt/app/opentelemetry-javaagent.jar
+    restart: on-failure
+    networks:
+      - opentracing
+    depends_on:
+      - apm
+
+  name-generator-service:
+    image: name-generator-service:0.1.0
+    container_name: generator
+    build: ./name-generator-service
+    environment:
+      - JAVA_OPTS=-javaagent:/opt/app/opentelemetry-javaagent.jar
+      - JAVA_EXTRA_OPTS=-Danimal.service.prefix.url=http://animal-name-service:9090 -Dscientist.service.prefix.url=http://scientist-name-service:9191
+      - LOG_LEVEL=debug
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://apm:8200
+      - OTEL_SERVICE_NAME=name-generator
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_APPLICATION_NAME=name-generator
+    ports:
+      - "9292:9292"
+    volumes:
+      - ./opentelemetry-javaagent.jar:/opt/app/opentelemetry-javaagent.jar
+    restart: on-failure
+    networks:
+      - opentracing
+    depends_on:
+      - apm
+      - animal-name-service
+      - scientist-name-service
+
+networks:
+  opentracing: {}
