@@ -6,7 +6,7 @@ services:
     container_name: "dd-agent"
    # platform: "linux/arm64"
     environment:
-      - DD_API_KEY=173869000075d87950af28c8d1e518b7
+      - DD_API_KEY=add_your_key_here
       - DD_SITE=datadoghq.com
       - DD_TAGS="env:dev"
       - DD_APM_ENABLED=true
