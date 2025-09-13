@@ -1,0 +1,129 @@
+version: "3.4"
+services:
+
+  dd-agent:
+    image: "datadog/agent:latest"
+    container_name: "dd-agent"
+   # platform: "linux/arm64"
+    environment:
+      - DD_API_KEY=173869000075d87950af28c8d1e518b7
+      - DD_SITE=datadoghq.com
+      - DD_TAGS="env:dev"
+      - DD_APM_ENABLED=true
+      - DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT=0.0.0.0:4317
+      - DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT=0.0.0.0:4318
+      - DD_OTLP_CONFIG_LOGS_ENABLED
+      - DD_LOGS_ENABLED=true
+      - DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true
+      - DD_PROCESS_AGENT_ENABLED=true
+      - DD_CONTAINER_LABELS_AS_TAGS='{"my.custom.label.squad":"squad"}'
+      - DD_APM_NON_LOCAL_TRAFFIC=true
+      - DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "8126:8126"
+      - "8125:8125/udp"
+      - "4317:4317"  
+      - "4318:4318"
+    restart: on-failure
+    networks:
+      - opentracing
+    labels:
+      com.datadoghq.ad.logs: '[{"source": "agent", "service": "agent"}]'
+
+  animal-name-service:
+    image: animal-name-service:0.1.0
+    container_name: animal
+    build: ./animal-name-service
+    ports:
+      - "9090:9090"
+    environment:
+      - JAVA_OPTS=-javaagent:/opt/app/opentelemetry-javaagent.jar
+      - DD_SERVICE=animal
+      - DD_ENV=dev
+      - DD_VERSION=1.0.0
+      - OTEL_SERVICE_NAME=animal
+      - OTEL_RESOURCE_ATTRIBUTES=service.version=1.0.0,env=dev
+      - LOG_LEVEL=debug
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://dd-agent:4317
+      - OTEL_SERVICE_NAME=animal
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_APPLICATION_NAME=animal
+    labels:
+      my.custom.label.squad: "backend"
+    volumes:
+      - ./opentelemetry-javaagent.jar:/opt/app/opentelemetry-javaagent.jar
+    restart: on-failure
+    networks:
+      - opentracing
+    depends_on:
+      - dd-agent
+
+  scientist-name-service:
+    image: scientist-name-service:0.1.0
+    container_name: scientist
+    build: ./scientist-name-service
+    ports:
+      - "9191:9191"
+    environment:
+      - JAVA_OPTS=-javaagent:/opt/app/opentelemetry-javaagent.jar
+      - DD_SERVICE=scientist
+      - DD_ENV=dev
+      - DD_VERSION=1.0.0
+      - OTEL_SERVICE_NAME=scientist
+      - OTEL_RESOURCE_ATTRIBUTES=service.version=1.0.0,env=dev    
+      - LOG_LEVEL=debug
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://dd-agent:4317
+      - OTEL_SERVICE_NAME=scientist
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_APPLICATION_NAME=scientist
+    volumes:
+      - ./opentelemetry-javaagent.jar:/opt/app/opentelemetry-javaagent.jar
+    restart: on-failure
+    networks:
+      - opentracing
+    depends_on:
+      - dd-agent
+
+  name-generator-service:
+    image: name-generator-service:0.1.0
+    container_name: generator
+    build: ./name-generator-service
+    environment:
+      - JAVA_OPTS=-javaagent:/opt/app/opentelemetry-javaagent.jar
+      - DD_SERVICE=name-generator
+      - DD_ENV=dev
+      - DD_VERSION=1.0.0
+      - OTEL_SERVICE_NAME=name-generator
+      - OTEL_RESOURCE_ATTRIBUTES=service.version=1.0.0,env=dev
+      - JAVA_EXTRA_OPTS=-Danimal.service.prefix.url=http://animal-name-service:9090 -Dscientist.service.prefix.url=http://scientist-name-service:9191
+      - LOG_LEVEL=debug
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://dd-agent:4317
+      - OTEL_SERVICE_NAME=name-generator
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_APPLICATION_NAME=name-generator
+    ports:
+      - "9292:9292"
+    volumes:
+      - ./opentelemetry-javaagent.jar:/opt/app/opentelemetry-javaagent.jar
+    restart: on-failure
+    networks:
+      - opentracing
+    depends_on:
+      - dd-agent
+      - animal-name-service
+      - scientist-name-service
+
+networks:
+  opentracing: {}
